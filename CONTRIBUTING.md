@@ -85,7 +85,8 @@ Em desenvolvimento o banco é SQLite em memória, então não precisa instalar n
   - `nível: intermediário`: pode pegar sozinho, mas pergunte cedo se travar
   - `nível: avançado`: **faça em dupla com o Mafra** (marque um horário antes de começar)
   - `tipo: …` e `épico: …` servem para organizar
-- A **"Seção da especificação"** citada em cada issue se refere ao documento de especificação do app. Peça ao Mafra se ainda não tiver.
+- A **"Seção da especificação"** citada em cada issue aponta para [`docs/especificacao.md`](docs/especificacao.md). Cada issue também tem um bloco **"📖 O que a especificação pede"** com o resumo do que importa para aquela tarefa. Em caso de dúvida, a especificação é a fonte oficial.
+- O campo **"Depende de"** mostra quais issues precisam estar prontas antes.
 
 > O quadro se move quase sozinho: abrir um PR leva o card para *Em revisão*, e o merge leva para *Pronto* e fecha a issue. A única coisa manual é arrastar para **Em andamento** quando você começar.
 
