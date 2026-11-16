@@ -6,10 +6,25 @@
     "@sap/cds": "^10"
   },
   "devDependencies": {
-    "@cap-js/sqlite": "^3"
+    "@cap-js/sqlite": "^3",
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0",
+    "jest": "^30.5.2"
   },
   "scripts": {
-    "start": "cds-serve"
+    "start": "cds-serve",
+    "lint": "eslint .",
+    "test": "jest --passWithNoTests"
   },
-  "private": true
+  "private": true,
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ]
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
 }
