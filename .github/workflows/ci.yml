@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, Dev]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: lint-test-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compilar modelo CDS
+        run: |
+          if find db srv -name '*.cds' 2>/dev/null | grep -q .; then
+            node -e "require('@sap/cds').load(['db','srv']).then(() => console.log('Modelo CDS ok'))"
+          else
+            echo "Nenhum arquivo .cds ainda (issue #3) — etapa ignorada"
+          fi
+
+      - name: Testes
+        run: npm test
+
+      - name: Build dos apps UI5
+        run: |
+          built=0
+          for app in app/player app/admin; do
+            if [ -f "$app/ui5.yaml" ] && [ -f "$app/webapp/manifest.json" ]; then
+              echo "Build de $app"
+              (cd "$app" && npx --yes @ui5/cli build --clean-dest)
+              built=1
+            fi
+          done
+          [ "$built" = 1 ] || echo "Apps UI5 ainda não existem (issue #8) — etapa ignorada"
