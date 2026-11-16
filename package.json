@@ -23,5 +23,8 @@
     "testMatch": [
       "**/test/**/*.test.js"
     ]
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }
