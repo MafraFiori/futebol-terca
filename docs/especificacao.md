@@ -1,7 +1,7 @@
 # Especificação Técnica — App "Futebol de Terça"
 
 - **Stack:** SAP CAP (Node.js) · SAPUI5 Fiori **freestyle** com **Smart Controls** (OData V2) · PostgreSQL · Render · GitHub
-- **Versão:** 1.4 (versão para início do desenvolvimento) · **Data:** 13/11/2026
+- **Versão:** 1.5 (versão para início do desenvolvimento) · **Data:** 13/11/2026
 - **Mudança da v0.2:** frontend deixa de usar Fiori Elements e passa a ser Fiori freestyle (XML views + controllers próprios), com smart controls para toda exibição e entrada de dados.
 - **Mudança da v0.3:** onde não há smart control adequado, a interface usa controles visuais do SAPUI5 (cards, tiles, avatares, estrelas, barras de progresso, ilustrações) para ficar mais amigável, principalmente no celular. Ver decisão D2 e seção 6.0.1.
 - **Mudança da v1.0:** decisões fechadas (seção 1.5): plano gratuito, e-mail via API do Gmail, jogo e churrasco independentes, **convidados** trazidos por jogadores, jogador avulso com diária, votação só de quem confirmou, inadimplência só com lembrete.
@@ -9,6 +9,7 @@
 - **Mudança da v1.2:** banco definido como **Render Postgres Free**, com rotina de renovação a cada 30 dias (seção 9.5).
 - **Mudança da v1.3:** **cadastro de eventos genérico** (seção 7.0.1): tipos configuráveis (jogo, churrasco, confraternização de fim de ano, outros), valor por pessoa com faixas de preço (jogador, convidado, criança), rateio de custo total ou gratuito, eventos independentes ou vinculados ao jogo.
 - **Mudança da v1.4:** **dia do jogo** com check-in e **sorteio de times** equilibrado e configurável (seção 7.0.2); **artilharia e assistências** lançadas pelos jogadores, com rankings (seção 7.0.3).
+- **Mudança da v1.5:** **sem arquivos CSV**: opções de status/tipo **prefixadas no campo** com `enum` (como valores fixos de domínio no ABAP); padrões de configuração como `default` no campo; dados iniciais e de exemplo por seed em código (seção 4.0).
 
 ---
 
@@ -68,6 +69,7 @@ Senhas serão armazenadas com **hash (bcrypt)**, então é impossível (e insegu
 | 10 | Eventos | Tipos de evento cadastráveis pelo admin; cobrança por pessoa (com faixas), rateio ou gratuita; evento social independente ou vinculado ao jogo (seção 7.0.1) |
 | 11 | Sorteio de times | No dia do jogo, só entre quem fez check-in; modo equilibrado por padrão (força = rating), jogadores por time configuráveis, variedade e transparência (seção 7.0.2) |
 | 12 | Artilharia/assistências | Lançadas pelo próprio jogador, assistência creditada a quem foi indicado, contestação em 24h; rankings por temporada (seção 7.0.3) |
+| 13 | Listas de valores | `enum` no próprio campo (sem tabela, sem CSV); dropdown via entidade genérica `FixedValues` lida do modelo; mudar opções = PR + deploy (seção 4.0) |
 | 9 | Configurabilidade | Toda regra que pode variar é parâmetro na Central de Configurações (seção 7.0), sem valor fixo no código |
 
 ---
@@ -167,26 +169,86 @@ O Web Service gratuito do Render dorme após 15 min sem tráfego e leva cerca de
 
 ## 4. Modelo de dados (CDS)
 
+### 4.0 Valores fixos nos campos (enum) e carga inicial (sem CSV)
+
+**Decisão:** as opções de cada campo de status/tipo ficam **prefixadas na definição do campo** com `enum`, como os valores fixos de um domínio no ABAP. Não há tabela de valores nem arquivo CSV.
+
+**Como funciona (validado no CAP com `@sap/cds` 10)**
+- **Definição:** cada lista é um `type ... enum` (bloco abaixo), com o texto de exibição em `@title`. O campo usa o tipo: `status : PlayerStatus default 'CONVIDADO' @assert.range;`. No banco é uma coluna texto comum (`status`).
+- **Validação automática:** com `@assert.range`, o CAP recusa valores fora da lista (erro `ASSERT_ENUM`, informando os valores permitidos).
+- **Dropdown nos smart controls:** o SmartField precisa de uma lista de valores OData. Cada serviço expõe uma entidade genérica **`FixedValues`** (`@cds.persistence.skip`, somente leitura), cujo handler lê os enums do próprio modelo (`cds.model`). Não existe tabela física. No campo:
+  ```cds
+  annotate AdminService.Players with {
+    status @Common: { Text: status_text, TextArrangement: #TextOnly, ValueListWithFixedValues,
+      ValueList: { CollectionPath: 'FixedValues', Parameters: [
+        { $Type: 'Common.ValueListParameterConstant', ValueListProperty: 'list', Constant: 'PlayerStatus' },
+        { $Type: 'Common.ValueListParameterInOut',    LocalDataProperty: status, ValueListProperty: 'code' },
+        { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'text' } ] } };
+  };
+  ```
+- **Texto na tela:** a projeção do serviço declara `virtual null as status_text : String(60)`, e um handler genérico `after READ` preenche `<campo>_text` com o `@title` do enum. A tela mostra "Confirmado" em vez de `CONFIRMADO`.
+- **Código reutilizável:** `srv/lib/fixed-values.js` concentra os dois handlers (lista de valores e textos). Cada serviço só registra o helper.
+- **Mudar as opções** (incluir um status, trocar um texto) é alteração de código, com PR e deploy. Faz sentido porque a lógica depende desses códigos. O que precisa ser mutável pelo admin continua em tabelas próprias: tipos de evento, faixas de preço, chaves PIX e configurações.
+
+**Carga inicial sem CSV**
+- **Configurações (`Settings`):** os padrões da seção 7.0 ficam como `default` **no próprio campo** (ex.: `vagasLinhaPadrao : Integer default 14;`). O seed só cria a linha `ID = 1`, e o banco preenche o resto.
+- **Dados iniciais de negócio** (tipos de evento padrão, regras de notificação, modelos de e-mail): `srv/lib/seed.js`, em `cds.on('served')`. É idempotente: insere só o que falta e nunca sobrescreve alterações do admin.
+- **Dados de exemplo para desenvolvimento:** `npm run seed:demo` (`scripts/seed-demo.js`), via CQL, bloqueado com `NODE_ENV=production`.
+
 Namespace `futebol`. Todas as entidades usam `cuid` e `managed` (`createdAt`, `createdBy`, `modifiedAt`, `modifiedBy`).
 
 ```cds
 namespace futebol;
-using { cuid, managed, sap.common.CodeList } from '@sap/cds/common';
+using { cuid, managed } from '@sap/cds/common';
 
-// ---------- Code lists ----------
-entity PlayerStatus     : CodeList { key code : String(10); } // CONVIDADO (convite pendente), ATIVO, INATIVO
-entity PlayerTypes      : CodeList { key code : String(10); } // MENSALISTA, AVULSO
-entity Positions        : CodeList { key code : String(10); } // GOLEIRO, LINHA
-entity FieldRoles       : CodeList { key code : String(10); } // DEFESA, MEIO, ATAQUE (posição preferida na linha, opcional)
-entity DrawModes        : CodeList { key code : String(12); } // EQUILIBRADO, ALEATORIO, ORDEM_CHEGADA, CAPITAES
-entity GoalStatus       : CodeList { key code : String(10); } // VALIDO, PENDENTE, CONTESTADO, REJEITADO
-entity EventCategories  : CodeList { key code : String(10); } // JOGO, SOCIAL
-entity ChargeModes      : CodeList { key code : String(12); } // POR_PESSOA, RATEIO, GRATUITO
-entity EventStatus      : CodeList { key code : String(10); } // RASCUNHO, ABERTO, FECHADO, REALIZADO, CANCELADO
-entity AttendanceStatus : CodeList { key code : String(10); } // PENDENTE, CONFIRMADO, RECUSADO, ESPERA
-entity ChargeTypes      : CodeList { key code : String(12); } // MENSALIDADE, DIARIA, EVENTO (churrasco, fim de ano...), OUTRO
-entity ChargeStatus     : CodeList { key code : String(10); } // PENDENTE, INFORMADO, APROVADO, REJEITADO, CANCELADO
-entity PixKeyTypes      : CodeList { key code : String(10); } // CPF, CNPJ, EMAIL, TELEFONE, ALEATORIA
+// ---------- Valores fixos (enum no próprio campo, sem tabela e sem CSV) ----------
+// Como os valores fixos de um domínio no ABAP: as opções ficam na definição do tipo.
+// @title = texto exibido. Validação automática com @assert.range no campo.
+
+type PlayerStatus : String(10) enum {
+  @title: 'Convidado' CONVIDADO; @title: 'Ativo' ATIVO; @title: 'Inativo' INATIVO;
+};
+type PlayerType : String(10) enum {
+  @title: 'Mensalista' MENSALISTA; @title: 'Avulso' AVULSO;
+};
+type Position : String(10) enum {
+  @title: 'Goleiro' GOLEIRO; @title: 'Linha' LINHA;
+};
+type FieldRole : String(10) enum {
+  @title: 'Defesa' DEFESA; @title: 'Meio' MEIO; @title: 'Ataque' ATAQUE;
+};
+type DrawMode : String(15) enum {
+  @title: 'Equilibrado' EQUILIBRADO; @title: 'Aleatório' ALEATORIO;
+  @title: 'Ordem de chegada' ORDEM_CHEGADA; @title: 'Capitães' CAPITAES;
+};
+type GoalStatus : String(10) enum {
+  @title: 'Válido' VALIDO; @title: 'Pendente' PENDENTE; @title: 'Contestado' CONTESTADO; @title: 'Rejeitado' REJEITADO;
+};
+type EventCategory : String(10) enum {
+  @title: 'Jogo' JOGO; @title: 'Social' SOCIAL;
+};
+type ChargeMode : String(12) enum {
+  @title: 'Por pessoa' POR_PESSOA; @title: 'Rateio' RATEIO; @title: 'Gratuito' GRATUITO;
+};
+type EventStatus : String(10) enum {
+  @title: 'Rascunho' RASCUNHO; @title: 'Aberto' ABERTO; @title: 'Fechado' FECHADO;
+  @title: 'Realizado' REALIZADO; @title: 'Cancelado' CANCELADO;
+};
+type AttendanceStatus : String(10) enum {
+  @title: 'Pendente' PENDENTE; @title: 'Confirmado' CONFIRMADO; @title: 'Recusado' RECUSADO; @title: 'Lista de espera' ESPERA;
+};
+type ChargeType : String(12) enum {
+  @title: 'Mensalidade' MENSALIDADE; @title: 'Diária' DIARIA; @title: 'Evento' EVENTO; @title: 'Outro' OUTRO;
+};
+type ChargeStatus : String(10) enum {
+  @title: 'Pendente' PENDENTE; @title: 'Em análise' INFORMADO; @title: 'Aprovado' APROVADO;
+  @title: 'Rejeitado' REJEITADO; @title: 'Cancelado' CANCELADO;
+};
+type PixKeyType : String(10) enum {
+  @title: 'CPF' CPF; @title: 'CNPJ' CNPJ; @title: 'E-mail' EMAIL; @title: 'Telefone' TELEFONE; @title: 'Aleatória' ALEATORIA;
+};
+// Uso nos campos (vale para todos):  status : PlayerStatus default 'CONVIDADO' @assert.range;
+// Onde o modelo abaixo diz "Association to PlayerStatus", leia "PlayerStatus @assert.range" (coluna simples, ex.: status).
 
 // ---------- Jogadores ----------
 entity Players : cuid, managed {
@@ -299,7 +361,7 @@ entity Settings : managed {
   // Infra (somente leitura na tela)
   dbCriadoEm : Date;
 }
-// Os padrões ficam em db/data/futebol-Settings.csv (seção 7.0), não no código.
+// Os padrões da seção 7.0 vão como `default` em cada campo; o seed só cria a linha ID = 1 (seção 4.0).
 
 entity NotificationRules : cuid {   // matriz tipo de aviso x canal
   tipo   : String(30);   // NOVO_EVENTO, LEMBRETE_CONFIRMACAO, COBRANCA, PAGAMENTO_APROVADO, VOTACAO_ABERTA, PROMOVIDO_ESPERA...
@@ -1047,7 +1109,7 @@ futebol-terca/
 ├─ db/
 │  ├─ schema.cds
 │  ├─ views.cds
-│  └─ data/                  # CSV das code lists (+ seeds de dev)
+│  └─ (sem pasta data/: opções em enum, padrões em default, seed em código — seção 4.0)
 ├─ srv/
 │  ├─ auth-service.cds|.js
 │  ├─ player-service.cds|.js
