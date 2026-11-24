@@ -1,0 +1,16 @@
+# Postgres local para desenvolvimento (opcional).
+# Uso: docker compose up -d && cds deploy --profile pg && cds watch --profile pg
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${CDS_REQUIRES_DB_CREDENTIALS_USER}
+      POSTGRES_PASSWORD: ${CDS_REQUIRES_DB_CREDENTIALS_PASSWORD}
+      POSTGRES_DB: ${CDS_REQUIRES_DB_CREDENTIALS_DATABASE}
+    ports:
+      - "${CDS_REQUIRES_DB_CREDENTIALS_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
